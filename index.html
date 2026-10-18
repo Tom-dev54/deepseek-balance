@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DeepSeek 余额查询</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1d2129; --muted:#6b7280; --accent:#4d6bfe; --err:#d93025; --line:#e5e7eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111317; --card:#1b1e24; --fg:#e8eaed; --muted:#9aa0a6; --accent:#7b93ff; --err:#f28b82; --line:#2c3038; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  main { max-width:480px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  input { width:100%; padding:12px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); }
+  button { width:100%; margin-top:12px; padding:12px; font-size:16px; border:0; border-radius:8px; background:var(--accent); color:#fff; }
+  button:disabled { opacity:.6; }
+  label { display:flex; gap:8px; align-items:center; margin-top:12px; color:var(--muted); font-size:14px; }
+  label input { width:auto; }
+  #out { margin-top:16px; }
+  .row { display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid var(--line); }
+  .big { font-size:28px; font-weight:600; }
+  .err { color:var(--err); }
+  .note { color:var(--muted); font-size:13px; margin-top:16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DeepSeek 余额查询</h1>
+  <div class="card">
+    <input id="key" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
+    <label><input id="remember" type="checkbox">在本浏览器记住 Key</label>
+    <button id="go">查询余额</button>
+    <div id="out"></div>
+  </div>
+  <p class="note">Key 只发送到 api.deepseek.com，不经过任何第三方。勾选“记住”会把 Key 存在本机浏览器 localStorage，公用设备请勿勾选。</p>
+</main>
+<script>
+  const STORE = "deepseek-balance-key";
+  const $ = (id) => document.getElementById(id);
+  const out = $("out");
+
+  try {
+    const saved = localStorage.getItem(STORE);
+    if (saved) { $("key").value = saved; $("remember").checked = true; }
+  } catch (e) {}
+
+  function show(html) { out.innerHTML = html; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" })[c]); }
+
+  async function query() {
+    const key = $("key").value.trim();
+    if (!key) { show('<p class="err">请先填入 API Key</p>'); return; }
+    try {
+      if ($("remember").checked) localStorage.setItem(STORE, key);
+      else localStorage.removeItem(STORE);
+    } catch (e) {}
+
+    $("go").disabled = true;
+    show("<p>查询中…</p>");
+    try {
+      const res = await fetch("https://api.deepseek.com/user/balance", {
+        headers: { Authorization: "Bearer " + key, Accept: "application/json" },
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = body?.error?.message || res.statusText;
+        show(`<p class="err">查询失败（HTTP ${res.status}）：${esc(msg)}</p>`);
+        return;
+      }
+      const infos = body?.balance_infos || [];
+      let html = `<p>状态：${body?.is_available ? "可用" : '<span class="err">不可用（余额不足）</span>'}</p>`;
+      if (!infos.length) html += "<p>没有返回余额信息</p>";
+      for (const b of infos) {
+        html += `<div class="big">${esc(b.total_balance)} ${esc(b.currency)}</div>`;
+        html += `<div class="row"><span>充值余额</span><span>${esc(b.topped_up_balance)}</span></div>`;
+        html += `<div class="row"><span>赠送余额</span><span>${esc(b.granted_balance)}</span></div>`;
+      }
+      show(html);
+    } catch (e) {
+      show(`<p class="err">网络错误：${esc(e.message)}</p>`);
+    } finally {
+      $("go").disabled = false;
+    }
+  }
+
+  $("go").addEventListener("click", query);
+  $("key").addEventListener("keydown", (e) => { if (e.key === "Enter") query(); });
+</script>
+</body>
+</html>
